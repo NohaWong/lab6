@@ -164,7 +164,7 @@ static int answer_command(command_t *cmd)
     return 0;
 }
 
-void *handle_connection(void *args) {
+void *communication_thread(void *args) {
 	int newsockfd = *((int *) args);
 
 	char* recv_buff=NULL;
@@ -239,7 +239,7 @@ void *handle_connection(void *args) {
     return (void *) 0;
 }
 
-void *exec_tasks(void *args) {
+void *executor_thread(void *args) {
     while (1) {
         consume_task(&exec_single_task);
     }

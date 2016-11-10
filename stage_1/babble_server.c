@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     int nb_args=1;
 
     pthread_t exec_tid;
-    pthread_create(&exec_tid, NULL, exec_tasks, NULL);
+    pthread_create(&exec_tid, NULL, executor_thread, NULL);
 
     
 
@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
         }
 
         pthread_t tid;
-        pthread_create(&tid, NULL, handle_connection, (void *) &newsockfd);
+        pthread_create(&tid, NULL, communication_thread, (void *) &newsockfd);
     }
     close(sockfd);
     return 0;

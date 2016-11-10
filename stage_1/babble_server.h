@@ -36,9 +36,9 @@ int notify_parse_error(command_t *cmd, char *input);
 int write_to_client(unsigned long key, int size, void* buf);
 
 // task for communication threads
-void *handle_connection(void *args);
+void *communication_thread(void *args);
 
-void *exec_tasks(void *args);
+void *executor_thread(void *args);
 
 void exec_single_task(task_t task);
 
