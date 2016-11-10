@@ -217,25 +217,13 @@ void *handle_connection(void *args) {
     free(recv_buff);
     free(cmd);
 
+    task_t task;
     /* looping on client commands */
     while((recv_size=network_recv(newsockfd, (void**) &recv_buff)) > 0){
-        task_t task = (task_t) {recv_buff, client_key};
+        task.cmd_str = recv_buff;
+        task.key = client_key;
         produce_task(task);
-        // cmd = new_command(client_key);
-        // if(parse_command(recv_buff, cmd) == -1){
-        //     fprintf(stderr, "Warning: unable to parse message from client %s\n", client_name);
-        //     notify_parse_error(cmd, recv_buff);
-        // }
-        // else{
-        //     if(process_command(cmd) == -1){
-        //         fprintf(stderr, "Warning: unable to process command from client %lu\n", client_key);
-        //     }
-        //     if(answer_command(cmd) == -1){
-        //         fprintf(stderr, "Warning: unable to answer command from client %lu\n", client_key);
-        //     }
-        // }
         free(recv_buff);
-        // free(cmd);
     }
 
     if(client_name[0] != 0){
@@ -259,5 +247,17 @@ void *exec_tasks(void *args) {
 }
 
 void exec_single_task(task_t task) {
-    printf("to exec: %s\n", task.cmd_str);
+    command_t *cmd = new_command(task.key);
+    if (parse_command(task.cmd_str, cmd) == -1){
+        fprintf(stderr, "Warning: unable to parse message from client %lu\n", task.key);
+        notify_parse_error(cmd, task.cmd_str);
+    } else {
+        if (process_command(cmd) == -1) {
+            fprintf(stderr, "Warning: unable to process command from client %lu\n", task.key);
+        }
+        if (answer_command(cmd) == -1) {
+            fprintf(stderr, "Warning: unable to answer command from client %lu\n", task.key);
+        }
+    }
+    free(cmd);
 }
