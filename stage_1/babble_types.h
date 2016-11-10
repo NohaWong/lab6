@@ -60,5 +60,10 @@ typedef struct client_data{
     int nb_follower;
 } client_data_t;
 
+typedef struct task {
+    char *cmd_str;
+    unsigned long key;
+} task_t;
+
 
 #endif

@@ -38,6 +38,10 @@ int write_to_client(unsigned long key, int size, void* buf);
 // task for communication threads
 void *handle_connection(void *args);
 
-void produce_task(char *task);
-void consume_task(void (*executor)(char *task));
+void *exec_tasks(void *args);
+
+void exec_single_task(task_t task);
+
+void produce_task(task_t task);
+void consume_task(void (*executor)(task_t task));
 #endif

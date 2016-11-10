@@ -34,6 +34,9 @@ int main(int argc, char *argv[])
     int opt;
     int nb_args=1;
 
+    pthread_t exec_tid;
+    pthread_create(&exec_tid, NULL, exec_tasks, NULL);
+
     
 
     while ((opt = getopt (argc, argv, "+p:")) != -1){
