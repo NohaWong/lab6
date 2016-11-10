@@ -2,8 +2,11 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include <string.h>
+#include <unistd.h>
+
 #include "babble_config.h"
 #include "babble_types.h"
+#include "babble_communication.h"
 #include "babble_server.h"
 
 pthread_mutex_t mutex_tasks = PTHREAD_MUTEX_INITIALIZER;
@@ -50,4 +53,86 @@ void consume_task(void (*executor)(task_t task)) {
     pthread_mutex_unlock(&mutex_tasks);
 
     executor(next_task);
+}
+
+void *communication_thread(void *args) {
+    int newsockfd = *((int *) args);
+
+    char* recv_buff=NULL;
+    int recv_size=0;
+
+    command_t *cmd;
+    unsigned long client_key=0;
+    char client_name[BABBLE_ID_SIZE+1];
+
+    bzero(client_name, BABBLE_ID_SIZE+1);
+    if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
+        fprintf(stderr, "Error -- recv from client\n");
+        close(newsockfd);
+        return (void *) -1;
+    }
+
+    cmd = new_command(0);
+    
+    if(parse_command(recv_buff, cmd) == -1 || cmd->cid != LOGIN){
+        fprintf(stderr, "Error -- in LOGIN message\n");
+        close(newsockfd);
+        free(cmd);
+        return (void *) -1;
+    }
+
+    /* before processing the command, we should register the
+     * socket associated with the new client; this is to be done only
+     * for the LOGIN command */
+    cmd->sock = newsockfd;
+
+    if(process_command(cmd) == -1){
+        fprintf(stderr, "Error -- in LOGIN\n");
+        close(newsockfd);
+        free(cmd);
+        return (void *) -1;
+    }
+
+    /* notify client of registration */
+    if(answer_command(cmd) == -1){
+        fprintf(stderr, "Error -- in LOGIN ack\n");
+        close(newsockfd);
+        free(cmd);
+        return (void *) -1;
+    }
+
+    /* let's store the key locally */
+    client_key = cmd->key;
+
+    strncpy(client_name, cmd->msg, BABBLE_ID_SIZE);
+    free(recv_buff);
+    free(cmd);
+
+    task_t task;
+    /* looping on client commands */
+    while((recv_size=network_recv(newsockfd, (void**) &recv_buff)) > 0){
+        task.cmd_str = recv_buff;
+        task.key = client_key;
+        produce_task(task);
+        free(recv_buff);
+    }
+
+    if(client_name[0] != 0){
+        cmd = new_command(client_key);
+        cmd->cid= UNREGISTER;
+        
+        if(unregisted_client(cmd)){
+            fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
+        }
+        free(cmd);
+    }
+
+    return (void *) 0;
+}
+
+void *executor_thread(void *args) {
+    while (1) {
+        consume_task(&exec_single_task);
+    }
+
 }

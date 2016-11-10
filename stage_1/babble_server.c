@@ -22,10 +22,6 @@ static void display_help(char *exec)
     printf("Usage: %s -p port_number\n", exec);
 }
 
-
-
-
-
 int main(int argc, char *argv[])
 {
     int sockfd, newsockfd;

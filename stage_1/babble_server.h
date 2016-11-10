@@ -16,6 +16,10 @@ int server_connection_accept(int sock);
 /* new object */
 command_t* new_command(unsigned long key);
 
+int parse_command(char* str, command_t *cmd);
+int process_command(command_t *cmd);
+int answer_command(command_t *cmd);
+
 /* Operations */
 int run_login_command(command_t *cmd);
 int run_publish_command(command_t *cmd);

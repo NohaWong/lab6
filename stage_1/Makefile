@@ -8,10 +8,9 @@ TARGETS = babble_server.run babble_client.run stress_test.run follow_test.run
 # source files the server depends on
 SERVER_DEPS= 	babble_utils.c \
 		babble_server_implem.c \
-		babble_server_thread.c \
-		babble_communication_thread.c \
 		babble_communication.c \
 		babble_registration.c \
+		babble_server_thread.c \
 		babble_publication_set.c
 
 # source files the client depends on
