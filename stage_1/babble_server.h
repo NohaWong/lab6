@@ -37,4 +37,7 @@ int write_to_client(unsigned long key, int size, void* buf);
 
 // task for communication threads
 void *handle_connection(void *args);
+
+void produce_task(char *task);
+void consume_task(void (*executor)(char *task));
 #endif
