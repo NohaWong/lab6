@@ -21,7 +21,6 @@ int task_out = 0;
 void produce_task(task_t task) {
     pthread_mutex_lock(&mutex_tasks);
     while (task_count == BABBLE_TASK_QUEUE_SIZE) {
-        // printf("[prod] task buffer full, waiting\n");
         pthread_cond_wait(&not_full_tasks, &mutex_tasks);
     }
 
@@ -35,13 +34,11 @@ void produce_task(task_t task) {
     task_count++;
     pthread_cond_signal(&not_empty_tasks);
     pthread_mutex_unlock(&mutex_tasks);
-    // printf("[prod][%ld] task added: %s\n", pthread_self(), task.cmd_str);
 }
 
 void consume_task(void (*executor)(task_t task)) {
     pthread_mutex_lock(&mutex_tasks);
     while (task_count == 0) {
-        // printf("[cons] task buffer empty, waiting\n");
         pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
     }
 
@@ -72,16 +69,14 @@ void *communication_thread(void *args) {
     while(1) {
         int newsockfd;
         if((newsockfd = server_connection_accept(sockfd))==-1){
-            return (void *) -1;
+            continue;
         }
-        // printf("[%ld] new thread: [%ld] -- fd: [%d]\n", pthread_self(), tid, *newsockfd);
 
         bzero(client_name, BABBLE_ID_SIZE+1);
-        printf("[%ld] communication_thread here - fd: [%d] \n", pthread_self(), newsockfd);
         if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
             fprintf(stderr, "Error -- recv from client\n");
             close(newsockfd);
-            return (void *) -1;
+            continue;
         }
 
         cmd = new_command(0);
@@ -90,7 +85,7 @@ void *communication_thread(void *args) {
             fprintf(stderr, "Error -- in LOGIN message\n");
             close(newsockfd);
             free(cmd);
-            return (void *) -1;
+            continue;
         }
 
         /* before processing the command, we should register the
@@ -102,7 +97,7 @@ void *communication_thread(void *args) {
             fprintf(stderr, "Error -- in LOGIN\n");
             close(newsockfd);
             free(cmd);
-            return (void *) -1;
+            continue;
         }
 
         /* notify client of registration */
@@ -110,7 +105,7 @@ void *communication_thread(void *args) {
             fprintf(stderr, "Error -- in LOGIN ack\n");
             close(newsockfd);
             free(cmd);
-            return (void *) -1;
+            continue;
         }
 
         /* let's store the key locally */
@@ -139,10 +134,6 @@ void *communication_thread(void *args) {
             free(cmd);
         }
     }
-
-    
-
-    
 
     return (void *) 0;
 }

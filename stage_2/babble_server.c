@@ -27,6 +27,7 @@ int main(int argc, char *argv[])
     int sockfd;
     int portno=BABBLE_PORT;
     
+    int i;
     int opt;
     int nb_args=1;
 
@@ -61,22 +62,17 @@ int main(int argc, char *argv[])
     }
 
     printf("Babble server bound to port %d\n", portno);    
-    
-    /* main server loop */
-    while(1) {
-        // alloc new memory for each new socket fd
-        // to ensure that new communication threads are not receiving the same argument pointer
-        // this is to make sure that even when multiple connections are created at the same time,
-        // all communication threads don't have the same socket fd
-        int *newsockfd = malloc(sizeof(int));
-        if((*newsockfd = server_connection_accept(sockfd))==-1){
-            return -1;
-        }
 
-        pthread_t tid;
-        pthread_create(&tid, NULL, communication_thread, (void *) newsockfd);
-        // printf("[%ld] new thread: [%ld] -- fd: [%d]\n", pthread_self(), tid, *newsockfd);
+    pthread_t *com_thread_pool = malloc(BABBLE_COMMUNICATION_THREADS * sizeof(pthread_t));
+    for (i = 0; i < BABBLE_COMMUNICATION_THREADS; i++) {
+        pthread_create(&com_thread_pool[i], NULL, communication_thread, (void *) &sockfd);
     }
+
+    void **retval = NULL;
+    for (i = 0; i < BABBLE_COMMUNICATION_THREADS; i++) {
+        pthread_join(com_thread_pool[i], retval);
+    }
+
     close(sockfd);
     return 0;
 }
