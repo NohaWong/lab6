@@ -15,7 +15,7 @@
 #include "babble_utils.h"
 #include "babble_communication.h"
 
-
+pthread_mutex_t mutex_socket_creation = PTHREAD_MUTEX_INITIALIZER;
 
 static void display_help(char *exec)
 {
@@ -24,7 +24,7 @@ static void display_help(char *exec)
 
 int main(int argc, char *argv[])
 {
-    int sockfd, newsockfd;
+    int sockfd;
     int portno=BABBLE_PORT;
     
     int opt;
@@ -63,13 +63,19 @@ int main(int argc, char *argv[])
     printf("Babble server bound to port %d\n", portno);    
     
     /* main server loop */
-    while(1){
-        if((newsockfd= server_connection_accept(sockfd))==-1){
+    while(1) {
+        // alloc new memory for each new socket fd
+        // to ensure that new communication threads are not receiving the same argument pointer
+        // this is to make sure that even when multiple connections are created at the same time,
+        // all communication threads don't have the same socket fd
+        int *newsockfd = malloc(sizeof(int));
+        if((*newsockfd = server_connection_accept(sockfd))==-1){
             return -1;
         }
 
         pthread_t tid;
-        pthread_create(&tid, NULL, communication_thread, (void *) &newsockfd);
+        pthread_create(&tid, NULL, communication_thread, (void *) newsockfd);
+        // printf("[%ld] new thread: [%ld] -- fd: [%d]\n", pthread_self(), tid, *newsockfd);
     }
     close(sockfd);
     return 0;

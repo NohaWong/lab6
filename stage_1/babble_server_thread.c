@@ -35,7 +35,7 @@ void produce_task(task_t task) {
     task_count++;
     pthread_cond_signal(&not_empty_tasks);
     pthread_mutex_unlock(&mutex_tasks);
-    // printf("[prod] task added: %s\n", task.cmd_str);
+    // printf("[prod][%ld] task added: %s\n", pthread_self(), task.cmd_str);
 }
 
 void consume_task(void (*executor)(task_t task)) {
@@ -48,7 +48,7 @@ void consume_task(void (*executor)(task_t task)) {
     task_t next_task = task_buffer[task_out];
     task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count--;
-    // printf("[cons] got task [%d] %s\n", task_out, next_task.cmd_str);
+    // printf("[cons][%ld] got task [%d] %s\n", pthread_self(), task_out, next_task.cmd_str);
     pthread_cond_signal(&not_full_tasks);
     pthread_mutex_unlock(&mutex_tasks);
 
@@ -66,9 +66,11 @@ void *communication_thread(void *args) {
     char client_name[BABBLE_ID_SIZE+1];
 
     bzero(client_name, BABBLE_ID_SIZE+1);
+    printf("[%ld] communication_thread here - fd: [%d] \n", pthread_self(), newsockfd);
     if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
         fprintf(stderr, "Error -- recv from client\n");
         close(newsockfd);
+        free(args);
         return (void *) -1;
     }
 
@@ -78,6 +80,7 @@ void *communication_thread(void *args) {
         fprintf(stderr, "Error -- in LOGIN message\n");
         close(newsockfd);
         free(cmd);
+        free(args);
         return (void *) -1;
     }
 
@@ -90,6 +93,7 @@ void *communication_thread(void *args) {
         fprintf(stderr, "Error -- in LOGIN\n");
         close(newsockfd);
         free(cmd);
+        free(args);
         return (void *) -1;
     }
 
@@ -98,6 +102,7 @@ void *communication_thread(void *args) {
         fprintf(stderr, "Error -- in LOGIN ack\n");
         close(newsockfd);
         free(cmd);
+        free(args);
         return (void *) -1;
     }
 
@@ -127,6 +132,7 @@ void *communication_thread(void *args) {
         free(cmd);
     }
 
+    free(args);
     return (void *) 0;
 }
 
