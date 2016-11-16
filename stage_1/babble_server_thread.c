@@ -48,11 +48,16 @@ void consume_task(void (*executor)(task_t task)) {
     task_t next_task = task_buffer[task_out];
     task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count--;
-    // printf("[cons][%ld] got task [%d] %s\n", pthread_self(), task_out, next_task.cmd_str);
+    
+    task_t cloned_task;
+    cloned_task.cmd_str = malloc(BABBLE_SIZE * sizeof(char));
+    strncpy(cloned_task.cmd_str, next_task.cmd_str, BABBLE_SIZE);
+    cloned_task.key = next_task.key;
+
     pthread_cond_signal(&not_full_tasks);
     pthread_mutex_unlock(&mutex_tasks);
-
-    executor(next_task);
+    executor(cloned_task);
+    free(cloned_task.cmd_str);
 }
 
 void *communication_thread(void *args) {
@@ -66,7 +71,6 @@ void *communication_thread(void *args) {
     char client_name[BABBLE_ID_SIZE+1];
 
     bzero(client_name, BABBLE_ID_SIZE+1);
-    printf("[%ld] communication_thread here - fd: [%d] \n", pthread_self(), newsockfd);
     if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
         fprintf(stderr, "Error -- recv from client\n");
         close(newsockfd);

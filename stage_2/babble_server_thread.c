@@ -48,16 +48,20 @@ void consume_task(void (*executor)(task_t task)) {
     task_t next_task = task_buffer[task_out];
     task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count--;
-    // printf("[cons][%ld] got task [%d] %s\n", pthread_self(), task_out, next_task.cmd_str);
+    
+    task_t cloned_task;
+    cloned_task.cmd_str = malloc(BABBLE_SIZE * sizeof(char));
+    strncpy(cloned_task.cmd_str, next_task.cmd_str, BABBLE_SIZE);
+    cloned_task.key = next_task.key;
+
     pthread_cond_signal(&not_full_tasks);
     pthread_mutex_unlock(&mutex_tasks);
-
-    executor(next_task);
+    executor(cloned_task);
+    free(cloned_task.cmd_str);
 }
 
 void *communication_thread(void *args) {
-    int newsockfd = *((int *) args);
-
+    int sockfd = *((int *) args);
     char* recv_buff=NULL;
     int recv_size=0;
 
@@ -65,74 +69,81 @@ void *communication_thread(void *args) {
     unsigned long client_key=0;
     char client_name[BABBLE_ID_SIZE+1];
 
-    bzero(client_name, BABBLE_ID_SIZE+1);
-    printf("[%ld] communication_thread here - fd: [%d] \n", pthread_self(), newsockfd);
-    if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
-        fprintf(stderr, "Error -- recv from client\n");
-        close(newsockfd);
-        free(args);
-        return (void *) -1;
-    }
-
-    cmd = new_command(0);
-    
-    if(parse_command(recv_buff, cmd) == -1 || cmd->cid != LOGIN){
-        fprintf(stderr, "Error -- in LOGIN message\n");
-        close(newsockfd);
-        free(cmd);
-        free(args);
-        return (void *) -1;
-    }
-
-    /* before processing the command, we should register the
-     * socket associated with the new client; this is to be done only
-     * for the LOGIN command */
-    cmd->sock = newsockfd;
-
-    if(process_command(cmd) == -1){
-        fprintf(stderr, "Error -- in LOGIN\n");
-        close(newsockfd);
-        free(cmd);
-        free(args);
-        return (void *) -1;
-    }
-
-    /* notify client of registration */
-    if(answer_command(cmd) == -1){
-        fprintf(stderr, "Error -- in LOGIN ack\n");
-        close(newsockfd);
-        free(cmd);
-        free(args);
-        return (void *) -1;
-    }
-
-    /* let's store the key locally */
-    client_key = cmd->key;
-
-    strncpy(client_name, cmd->msg, BABBLE_ID_SIZE);
-    free(recv_buff);
-    free(cmd);
-
-    task_t task;
-    /* looping on client commands */
-    while((recv_size=network_recv(newsockfd, (void**) &recv_buff)) > 0){
-        task.cmd_str = recv_buff;
-        task.key = client_key;
-        produce_task(task);
-        free(recv_buff);
-    }
-
-    if(client_name[0] != 0){
-        cmd = new_command(client_key);
-        cmd->cid= UNREGISTER;
-        
-        if(unregisted_client(cmd)){
-            fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
+    while(1) {
+        int newsockfd;
+        if((newsockfd = server_connection_accept(sockfd))==-1){
+            return (void *) -1;
         }
+        // printf("[%ld] new thread: [%ld] -- fd: [%d]\n", pthread_self(), tid, *newsockfd);
+
+        bzero(client_name, BABBLE_ID_SIZE+1);
+        printf("[%ld] communication_thread here - fd: [%d] \n", pthread_self(), newsockfd);
+        if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
+            fprintf(stderr, "Error -- recv from client\n");
+            close(newsockfd);
+            return (void *) -1;
+        }
+
+        cmd = new_command(0);
+        
+        if(parse_command(recv_buff, cmd) == -1 || cmd->cid != LOGIN){
+            fprintf(stderr, "Error -- in LOGIN message\n");
+            close(newsockfd);
+            free(cmd);
+            return (void *) -1;
+        }
+
+        /* before processing the command, we should register the
+         * socket associated with the new client; this is to be done only
+         * for the LOGIN command */
+        cmd->sock = newsockfd;
+
+        if(process_command(cmd) == -1){
+            fprintf(stderr, "Error -- in LOGIN\n");
+            close(newsockfd);
+            free(cmd);
+            return (void *) -1;
+        }
+
+        /* notify client of registration */
+        if(answer_command(cmd) == -1){
+            fprintf(stderr, "Error -- in LOGIN ack\n");
+            close(newsockfd);
+            free(cmd);
+            return (void *) -1;
+        }
+
+        /* let's store the key locally */
+        client_key = cmd->key;
+
+        strncpy(client_name, cmd->msg, BABBLE_ID_SIZE);
+        free(recv_buff);
         free(cmd);
+
+        task_t task;
+        /* looping on client commands */
+        while((recv_size=network_recv(newsockfd, (void**) &recv_buff)) > 0){
+            task.cmd_str = recv_buff;
+            task.key = client_key;
+            produce_task(task);
+            free(recv_buff);
+        }
+
+        if(client_name[0] != 0){
+            cmd = new_command(client_key);
+            cmd->cid= UNREGISTER;
+            
+            if(unregisted_client(cmd)){
+                fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
+            }
+            free(cmd);
+        }
     }
 
-    free(args);
+    
+
+    
+
     return (void *) 0;
 }
 
