@@ -137,7 +137,7 @@ void *communication_thread(void *args) {
             if(unregisted_client(cmd)){
                 fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
             }
-            pthread_mutex_lock(&mutex_registration);
+            pthread_mutex_unlock(&mutex_registration);
             free(cmd);
         }
     }
