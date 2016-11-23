@@ -341,6 +341,7 @@ command_t* new_command(unsigned long key)
 
 int run_login_command(command_t *cmd)
 {
+    start_write();
     struct timespec tt;
     clock_gettime(CLOCK_REALTIME, &tt);
     
@@ -363,6 +364,7 @@ int run_login_command(command_t *cmd)
         free(client_data->pub_set);
         free(client_data);
         generate_cmd_error(cmd);
+        end_write();
         return -1;
     }
     
@@ -373,18 +375,20 @@ int run_login_command(command_t *cmd)
     cmd->answer.aset = malloc(sizeof(answer_t));
     
     snprintf(cmd->answer.aset->msg, BABBLE_BUFFER_SIZE,"%s[%ld]: registered with key %lu\n", client_data->client_name, tt.tv_sec - server_start, client_data->key);
-    
+    end_write();
     return 0;
 }
 
 
 int run_publish_command(command_t *cmd)
 {    
+    start_write();
     client_data_t *client = registration_lookup(cmd->key);
     
     if(client == NULL){
         fprintf(stderr, "Error -- no client found\n");
         generate_cmd_error(cmd);
+        end_write();
         return -1;
     }
     
@@ -397,18 +401,20 @@ int run_publish_command(command_t *cmd)
     cmd->answer.aset = malloc(sizeof(answer_t));
 
     snprintf(cmd->answer.aset->msg, BABBLE_BUFFER_SIZE,"%s[%ld]: { %s }\n", client->client_name, pub->date, pub->msg);
-    
+    end_write();
     return 0;
 }
 
 
 int run_follow_command(command_t *cmd)
 {
+    start_write();
     client_data_t *client = registration_lookup(cmd->key);
     
     if(client == NULL){
         fprintf(stderr, "Error -- no client found\n");
         generate_cmd_error(cmd);
+        end_write();
         return -1;
     }
 
@@ -420,6 +426,7 @@ int run_follow_command(command_t *cmd)
     
     if(f_client == NULL){
         generate_cmd_error(cmd);        
+        end_write();
         return 0;
     }
     
@@ -444,13 +451,14 @@ int run_follow_command(command_t *cmd)
     cmd->answer.aset = malloc(sizeof(answer_t));
 
     snprintf(cmd->answer.aset->msg, BABBLE_BUFFER_SIZE,"%s[%ld]: follow %s\n", client->client_name, time(NULL)-server_start, f_client->client_name);
-
+    end_write();
     return 0;
 }
 
 
 int run_timeline_command(command_t *cmd)
 {
+    start_read();
     int i=0;
     timeline_item_t *pub_list=NULL;
     int item_count=0;
@@ -467,6 +475,7 @@ int run_timeline_command(command_t *cmd)
     if(client == NULL){
         fprintf(stderr, "Error -- no client found\n");
         generate_cmd_error(cmd);
+        end_read();
         return -1;
     }
 
@@ -539,19 +548,21 @@ int run_timeline_command(command_t *cmd)
     }
 
     client->last_timeline = end_time;
-    
+    end_read();
     return 0;
 }
 
 
 int run_fcount_command(command_t *cmd)
 {
+    start_read();
     /* lookup client */
     client_data_t *client = registration_lookup(cmd->key);
 
     if(client == NULL){
         fprintf(stderr, "Error -- no client found\n");
         generate_cmd_error(cmd);
+        end_read();
         return -1;
     }
     
@@ -560,18 +571,20 @@ int run_fcount_command(command_t *cmd)
     cmd->answer.aset = malloc(sizeof(answer_t));
     
     snprintf(cmd->answer.aset->msg, BABBLE_BUFFER_SIZE,"%s[%ld]: has %d followers\n", client->client_name, time(NULL) - server_start, client->nb_follower);
-    
+    end_read();
     return 0;
 }
 
 int run_rdv_command(command_t *cmd)
 {
+    start_read();
     /* lookup client */
     client_data_t *client = registration_lookup(cmd->key);
     
     if(client == NULL){
         fprintf(stderr, "Error -- no client found\n");
         generate_cmd_error(cmd);
+        end_read();
         return -1;
     }
     
@@ -580,13 +593,14 @@ int run_rdv_command(command_t *cmd)
     cmd->answer.aset = malloc(sizeof(answer_t));
     
     snprintf(cmd->answer.aset->msg, BABBLE_BUFFER_SIZE,"%s[%ld]: rdv_ack\n", client->client_name, time(NULL) - server_start);
-    
+    end_read();
     return 0;
 }
 
 
 int unregisted_client(command_t *cmd)
 {
+    start_write();
     assert(cmd->cid == UNREGISTER);
     
     /* remove client */
@@ -597,6 +611,7 @@ int unregisted_client(command_t *cmd)
         close(client->sock);
         free_client_data(client);
     }
+    end_write();
     
 
     return 0;
@@ -606,11 +621,13 @@ int unregisted_client(command_t *cmd)
 /* send error msg to client in case the input msg could not be parsed */
 int notify_parse_error(command_t *cmd, char *input)
 {
+    start_read();
     /* lookup client */
     client_data_t *client = registration_lookup(cmd->key);
 
     if(client == NULL){
         fprintf(stderr, "Error -- no client found\n");
+        end_read();
         return -1;
     }
 
@@ -622,9 +639,11 @@ int notify_parse_error(command_t *cmd, char *input)
     
         if(write_to_client(cmd->key, strlen(buffer)+1, buffer)){
             fprintf(stderr,"Error -- could not send error msg: %s\n", buffer);
+            end_read();
             return -1;
         }
     }
+    end_read();
     
     return 0;
 }
@@ -633,10 +652,12 @@ int notify_parse_error(command_t *cmd, char *input)
 /* send buf to client identified by key */
 int write_to_client(unsigned long key, int size, void* buf)
 {
+    start_read();
     client_data_t *client = registration_lookup(key);
 
     if(client == NULL){
         fprintf(stderr, "Error -- writing to non existing client %lu\n", key);
+        end_read();
         return -1;
     }
     
@@ -644,8 +665,10 @@ int write_to_client(unsigned long key, int size, void* buf)
             
     if (write_size < 0){
         perror("writing to socket");
+        end_read();
         return -1;
     }
+    end_read();
 
     return 0;
 }

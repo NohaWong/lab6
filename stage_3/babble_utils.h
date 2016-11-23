@@ -19,5 +19,9 @@ unsigned long parse_login_ack(char* ack_msg);
 /* extract nb of followers from follow_count msg */
 int parse_fcount_ack(char* ack);
 
+void start_read(void);
+void end_read(void);
+void start_write(void);
+void end_write(void);
 
 #endif

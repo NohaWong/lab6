@@ -4,6 +4,43 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+
+
+int reader_count = 0;
+int writer = 0;
+pthread_mutex_t rw_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t rw_cond = PTHREAD_COND_INITIALIZER;
+
+void start_read(void) {
+    pthread_mutex_lock(&rw_mutex);
+    reader_count = reader_count + 1;
+    while(writer == 1) {
+        pthread_cond_wait(&rw_cond, &rw_mutex);
+    }
+    pthread_mutex_unlock(&rw_mutex);
+}
+void end_read(void) {
+    pthread_mutex_lock(&rw_mutex);
+    reader_count = reader_count - 1;
+    pthread_cond_broadcast(&rw_cond);
+    pthread_mutex_unlock(&rw_mutex);
+}
+void start_write(void) {
+    pthread_mutex_lock(&rw_mutex);
+    while((reader_count > 0) || (writer == 1)) {
+        pthread_cond_wait(&rw_cond, &rw_mutex);
+    }
+    writer = 1;
+    pthread_mutex_unlock(&rw_mutex);
+}
+void end_write(void) {
+    pthread_mutex_lock(&rw_mutex);
+    writer = 0;
+    pthread_cond_broadcast(&rw_cond);
+    pthread_mutex_unlock(&rw_mutex);
+}
+
 
 /* split the string according to BABBLE_DELIMITER */
 /* returns an array of char* with a copy of each item found */

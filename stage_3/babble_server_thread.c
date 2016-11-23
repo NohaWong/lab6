@@ -13,8 +13,6 @@ pthread_mutex_t mutex_tasks = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t not_empty_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t have_matched_command[BABBLE_EXECUTOR_THREADS];
-// to lock CS that manipulate registration records
-pthread_mutex_t mutex_registration = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_connection = PTHREAD_MUTEX_INITIALIZER;
 
 
@@ -117,9 +115,7 @@ void *communication_thread(void *args) {
          * for the LOGIN command */
         cmd->sock = newsockfd;
 
-        pthread_mutex_lock(&mutex_registration);
         int login_result = process_command(cmd);
-        pthread_mutex_unlock(&mutex_registration);
         if(login_result == -1){
             fprintf(stderr, "Error -- in LOGIN\n");
             close(newsockfd);
@@ -155,11 +151,9 @@ void *communication_thread(void *args) {
             cmd = new_command(client_key);
             cmd->cid= UNREGISTER;
             
-            pthread_mutex_lock(&mutex_registration);
             if(unregisted_client(cmd)){
                 fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
             }
-            pthread_mutex_unlock(&mutex_registration);
             free(cmd);
         }
     }
