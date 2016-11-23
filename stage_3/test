@@ -1,23 +1,10 @@
 #!/bin/bash
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
-./stress_test.run -n 50 -k 50 -s
+
+i="0"
+
+while [ $i -lt $1 ]
+do
+./stress_test.run -n $2 -k $3 -s
+i=$[$i+1]
+done
+
