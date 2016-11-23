@@ -12,6 +12,7 @@
 pthread_mutex_t mutex_tasks = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t not_empty_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t mutex_registration = PTHREAD_MUTEX_INITIALIZER;
 
 task_t task_buffer[BABBLE_TASK_QUEUE_SIZE];
 int task_count = 0;
@@ -92,8 +93,10 @@ void *communication_thread(void *args) {
          * socket associated with the new client; this is to be done only
          * for the LOGIN command */
         cmd->sock = newsockfd;
-
-        if(process_command(cmd) == -1){
+        pthread_mutex_lock(&mutex_registration);
+        int login_result=process_command(cmd);
+        pthread_mutex_unlock(&mutex_registration);
+        if(login_result == -1){
             fprintf(stderr, "Error -- in LOGIN\n");
             close(newsockfd);
             free(cmd);
@@ -127,10 +130,11 @@ void *communication_thread(void *args) {
         if(client_name[0] != 0){
             cmd = new_command(client_key);
             cmd->cid= UNREGISTER;
-            
+            pthread_mutex_lock(&mutex_registration);
             if(unregisted_client(cmd)){
                 fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
             }
+            pthread_mutex_lock(&mutex_registration);
             free(cmd);
         }
     }
