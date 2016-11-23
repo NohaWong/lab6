@@ -15,6 +15,7 @@ pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t have_matched_command[BABBLE_EXECUTOR_THREADS];
 // to lock CS that manipulate registration records
 pthread_mutex_t mutex_registration = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_connection = PTHREAD_MUTEX_INITIALIZER;
 
 
 task_t task_buffer[BABBLE_TASK_QUEUE_SIZE];
@@ -87,8 +88,10 @@ void *communication_thread(void *args) {
     char client_name[BABBLE_ID_SIZE+1];
 
     while(1) {
-        int newsockfd;
-        if((newsockfd = server_connection_accept(sockfd))==-1){
+        pthread_mutex_lock(&mutex_connection);
+        int newsockfd = server_connection_accept(sockfd);
+        pthread_mutex_unlock(&mutex_connection);
+        if(newsockfd == -1){
             continue;
         }
 
