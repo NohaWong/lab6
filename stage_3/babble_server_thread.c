@@ -32,17 +32,27 @@ void produce_task(task_t task) {
 
     task_in = (task_in + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count++;
-    pthread_cond_signal(&not_empty_tasks);
+
+    // if signal, the single waken up consumer might not be fit for the next command key
+    pthread_cond_broadcast(&not_empty_tasks);
     pthread_mutex_unlock(&mutex_tasks);
 }
 
-void consume_task(void (*executor)(task_t task)) {
+void consume_task(void (*executor)(task_t task), int exec_id) {
     pthread_mutex_lock(&mutex_tasks);
     while (task_count == 0) {
         pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
     }
 
     task_t next_task = task_buffer[task_out];
+    if (next_task.key % BABBLE_EXECUTOR_THREADS != exec_id) {
+        // do not consume task if task key (client) does not 'match' the current thread
+        // this is to ensure every task of a single client is processed by the same exec thread to ensure command order
+        pthread_mutex_unlock(&mutex_tasks);
+        return;
+    }
+
+
     task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count--;
     
@@ -140,7 +150,7 @@ void *communication_thread(void *args) {
 
 void *executor_thread(void *args) {
     while (1) {
-        consume_task(&exec_single_task);
+        consume_task(&exec_single_task, *((int *) args));
     }
-
+    free(args);
 }

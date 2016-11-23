@@ -33,7 +33,9 @@ int main(int argc, char *argv[])
 
     pthread_t *exec_thread_pool = malloc(BABBLE_EXECUTOR_THREADS * sizeof(pthread_t));
     for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
-        pthread_create(&exec_thread_pool[i], NULL, executor_thread, NULL);
+        int *exec_id = malloc(sizeof(int));
+        *exec_id = i;
+        pthread_create(&exec_thread_pool[i], NULL, executor_thread, (void *) exec_id);
     }
 
     while ((opt = getopt (argc, argv, "+p:")) != -1){
