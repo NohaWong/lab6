@@ -594,7 +594,7 @@ int unregisted_client(command_t *cmd)
 
     if(client != NULL){
         printf("### Unregister client %s (key = %lu)\n", client->client_name, client->key);
-
+        close(client->sock);
         free_client_data(client);
     }
     
