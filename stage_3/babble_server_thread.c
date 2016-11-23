@@ -41,26 +41,26 @@ void produce_task(task_t task) {
     task_in = (task_in + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count++;
 
-    // if signal, the single waken up consumer might not be fit for the next command key
-    pthread_cond_broadcast(&not_empty_tasks);
+    int exec_id = task.key % BABBLE_EXECUTOR_THREADS;
+
+    // signal the thread with id match the command key
+    pthread_cond_signal(&have_matched_command[exec_id]);
     pthread_mutex_unlock(&mutex_tasks);
 }
 
 void consume_task(void (*executor)(task_t task), int exec_id) {
     pthread_mutex_lock(&mutex_tasks);
-    while (task_count == 0) {
-        pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
+    task_t next_task;
+    while (task_count == 0 || task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS != exec_id) {
+        int key_exec_id = task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS;
+        // if there's a task next but not fit for me, i wake up the consumer thread fits for the task
+        if (task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS != exec_id) {
+            pthread_cond_signal(&have_matched_command[key_exec_id]);
+        }
+        pthread_cond_wait(&have_matched_command[exec_id], &mutex_tasks);
     }
 
-    task_t next_task = task_buffer[task_out];
-    if (next_task.key % BABBLE_EXECUTOR_THREADS != exec_id) {
-        // do not consume task if task key (client) does not 'match' the current thread
-        // this is to ensure every task of a single client is processed by the same exec thread to ensure command order
-        pthread_mutex_unlock(&mutex_tasks);
-        return;
-    }
-
-
+    next_task = task_buffer[task_out];
     task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count--;
     

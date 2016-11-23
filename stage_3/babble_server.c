@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
     int opt;
     int nb_args=1;
 
+    init_cond_vars();
     pthread_t *exec_thread_pool = malloc(BABBLE_EXECUTOR_THREADS * sizeof(pthread_t));
     for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
         int *exec_id = malloc(sizeof(int));

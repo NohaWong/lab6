@@ -12,6 +12,7 @@ extern time_t server_start;
 void server_data_init(void);
 int server_connection_init(int port);
 int server_connection_accept(int sock);
+void init_cond_vars(void);
 
 /* new object */
 command_t* new_command(unsigned long key);
