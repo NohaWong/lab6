@@ -1,0 +1,23 @@
+#!/bin/bash
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
+./stress_test.run -n 50 -k 50 -s
