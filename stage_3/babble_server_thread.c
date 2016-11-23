@@ -12,11 +12,19 @@
 pthread_mutex_t mutex_tasks = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t not_empty_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
+pthread_cond_t have_matched_command[BABBLE_EXECUTOR_THREADS];
+
 
 task_t task_buffer[BABBLE_TASK_QUEUE_SIZE];
 int task_count = 0;
 int task_in = 0;
 int task_out = 0;
+
+void init_cond_vars() {
+    for (int i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
+        pthread_cond_init(&have_matched_command[i], NULL);
+    }
+}
 
 void produce_task(task_t task) {
     pthread_mutex_lock(&mutex_tasks);
