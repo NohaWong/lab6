@@ -22,9 +22,10 @@ task_t task_buffer[BABBLE_TASK_QUEUE_SIZE];
 int task_count = 0;
 int task_in = 0;
 int task_out = 0;
+int i;
 
 void init_cond_vars() {
-    for (int i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
+    for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
         pthread_cond_init(&have_matched_command[i], NULL);
     }
 }
