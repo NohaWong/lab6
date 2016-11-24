@@ -67,8 +67,12 @@ int main(int argc, char *argv[])
     printf("Babble server bound to port %d\n", portno);    
 
     pthread_t *com_thread_pool = malloc(BABBLE_COMMUNICATION_THREADS * sizeof(pthread_t));
+    hybrid_thr_args_t *hargs;
     for (i = 0; i < BABBLE_COMMUNICATION_THREADS; i++) {
-        pthread_create(&com_thread_pool[i], NULL, communication_thread, (void *) &sockfd);
+        hargs = malloc(sizeof(hybrid_thr_args_t));
+        hargs->sockfd = sockfd;
+        hargs->exec_id = i + BABBLE_EXECUTOR_THREADS;
+        pthread_create(&com_thread_pool[i], NULL, hybrid_thread, (void *) hargs);
     }
 
     void **retval = NULL;

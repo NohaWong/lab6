@@ -21,9 +21,12 @@ int task_count = 0;
 int task_in = 0;
 int task_out = 0;
 
-int exec_ids[100];
+int exec_ids[BABBLE_EXECUTOR_THREADS + BABBLE_COMMUNICATION_THREADS];
 int nb_consumers = 0;
+int no_com_thr = 1;
 
+// maintain list of active consumers
+// to distribute client commands accordingly
 static void add_exec_id(int exec_id) {
     int i;
     pthread_mutex_lock(&mutex_exec_ids);
@@ -75,23 +78,31 @@ void produce_task(task_t task) {
     task_in = (task_in + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count++;
 
-    int exec_id = task.key % BABBLE_EXECUTOR_THREADS;
-
-    // signal the thread with id match the command key
-    pthread_cond_signal(&have_matched_command[exec_id]);
+    pthread_cond_broadcast(&not_empty_tasks);
     pthread_mutex_unlock(&mutex_tasks);
 }
 
 void consume_task(void (*executor)(task_t task), int exec_id) {
     pthread_mutex_lock(&mutex_tasks);
     task_t next_task;
-    while (task_count == 0 || task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS != exec_id) {
-        int key_exec_id = task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS;
-        // if there's a task next but not fit for me, i wake up the consumer thread fits for the task
-        if (task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS != exec_id) {
-            pthread_cond_signal(&have_matched_command[key_exec_id]);
+
+    while (task_count == 0) {
+        pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
+        // no communication thread avail now
+        // i might be needed to become communication thread
+        if (no_com_thr) {
+            pthread_mutex_unlock(&mutex_tasks);
+            return;
         }
-        pthread_cond_wait(&have_matched_command[exec_id], &mutex_tasks);
+    }
+
+    int hash = task_buffer[task_out].key % nb_consumers;
+    // assign commands from the same client to single consumer
+    // to ensure command ordering
+    if (exec_ids[hash] != exec_id) {
+        // not the task for me
+        pthread_mutex_unlock(&mutex_tasks);
+        return;
     }
 
     next_task = task_buffer[task_out];
@@ -109,93 +120,11 @@ void consume_task(void (*executor)(task_t task), int exec_id) {
     free(cloned_task.cmd_str);
 }
 
-void *communication_thread(void *args) {
-    int sockfd = *((int *) args);
-    char* recv_buff=NULL;
-    int recv_size=0;
-
-    command_t *cmd;
-    unsigned long client_key=0;
-    char client_name[BABBLE_ID_SIZE+1];
-
-    while(1) {
-        pthread_mutex_lock(&mutex_connection);
-        int newsockfd = server_connection_accept(sockfd);
-        pthread_mutex_unlock(&mutex_connection);
-        if(newsockfd == -1){
-            continue;
-        }
-
-        bzero(client_name, BABBLE_ID_SIZE+1);
-        if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
-            fprintf(stderr, "Error -- recv from client\n");
-            close(newsockfd);
-            continue;
-        }
-
-        cmd = new_command(0);
-        
-        if(parse_command(recv_buff, cmd) == -1 || cmd->cid != LOGIN){
-            fprintf(stderr, "Error -- in LOGIN message\n");
-            close(newsockfd);
-            free(cmd);
-            continue;
-        }
-
-        /* before processing the command, we should register the
-         * socket associated with the new client; this is to be done only
-         * for the LOGIN command */
-        cmd->sock = newsockfd;
-
-        int login_result = process_command(cmd);
-        if(login_result == -1){
-            fprintf(stderr, "Error -- in LOGIN\n");
-            close(newsockfd);
-            free(cmd);
-            continue;
-        }
-
-        /* notify client of registration */
-        if(answer_command(cmd) == -1){
-            fprintf(stderr, "Error -- in LOGIN ack\n");
-            close(newsockfd);
-            free(cmd);
-            continue;
-        }
-
-        /* let's store the key locally */
-        client_key = cmd->key;
-
-        strncpy(client_name, cmd->msg, BABBLE_ID_SIZE);
-        free(recv_buff);
-        free(cmd);
-
-        task_t task;
-        /* looping on client commands */
-        while((recv_size=network_recv(newsockfd, (void**) &recv_buff)) > 0){
-            task.cmd_str = recv_buff;
-            task.key = client_key;
-            produce_task(task);
-            free(recv_buff);
-        }
-
-        if(client_name[0] != 0){
-            cmd = new_command(client_key);
-            cmd->cid= UNREGISTER;
-            
-            if(unregisted_client(cmd)){
-                fprintf(stderr,"Warning -- failed to unregister client %s\n",client_name);
-            }
-            free(cmd);
-        }
-    }
-
-    return (void *) 0;
-}
-
 void *executor_thread(void *args) {
+    int exec_id = *((int *) args);
+    add_exec_id(exec_id);
     while (1) {
-        consume_task(&exec_single_task, *((int *) args));
+        consume_task(&exec_single_task, exec_id);
     }
     free(args);
 }
@@ -203,13 +132,32 @@ void *executor_thread(void *args) {
 void *hybrid_thread(void *args) {
     hybrid_thr_args_t *hargs = (hybrid_thr_args_t *) args;
     while (1) {
-        if (pthread_mutex_trylock(&mutex_connection)) {
+        // if i cant get the mutex_connection, i'll be consumer
+        if (!pthread_mutex_trylock(&mutex_connection)) {
+            no_com_thr = 0;
             int newsockfd = server_connection_accept(hargs->sockfd);
+            // i'll maintain communication to this client
+            // need to elect another thread to handle incoming connection
+            // so wake all hybrid consumers up
+
+            // acquire lock for mutex_tasks
+            // so that running consumers can finish and go to sleep before creating signal to wake them up
+            pthread_mutex_lock(&mutex_tasks);
+            no_com_thr = 1;
+            pthread_cond_broadcast(&not_empty_tasks);
+            pthread_mutex_unlock(&mutex_tasks);
             pthread_mutex_unlock(&mutex_connection);
 
             if(newsockfd == -1){
                 continue;
             }
+
+            char* recv_buff=NULL;
+            int recv_size=0;
+
+            command_t *cmd;
+            unsigned long client_key=0;
+            char client_name[BABBLE_ID_SIZE+1];
 
             bzero(client_name, BABBLE_ID_SIZE+1);
             if((recv_size = network_recv(newsockfd, (void**)&recv_buff)) < 0){
@@ -274,7 +222,9 @@ void *hybrid_thread(void *args) {
                 free(cmd);
             }
         } else {
+            add_exec_id(hargs->exec_id);
             consume_task(&exec_single_task, hargs->exec_id);
+            remove_exec_id(hargs->exec_id);
         }
     }
     free(hargs);
