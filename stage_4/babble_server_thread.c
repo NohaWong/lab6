@@ -10,7 +10,8 @@
 #include "babble_server.h"
 
 pthread_mutex_t mutex_tasks = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t not_empty_tasks = PTHREAD_COND_INITIALIZER;
+pthread_cond_t need_exec = PTHREAD_COND_INITIALIZER;
+pthread_cond_t need_hybrid = PTHREAD_COND_INITIALIZER;
 pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t mutex_connection = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_exec_ids = PTHREAD_MUTEX_INITIALIZER;
@@ -70,19 +71,25 @@ void produce_task(task_t task) {
     task_in = (task_in + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count++;
 
-    pthread_cond_broadcast(&not_empty_tasks);
+    pthread_cond_broadcast(&need_exec);
+    pthread_cond_broadcast(&need_hybrid);
     pthread_mutex_unlock(&mutex_tasks);
 }
 
-void consume_task(void (*executor)(task_t task), int exec_id) {
+void consume_task(void (*executor)(task_t task), int exec_id, int is_hybrid) {
     pthread_mutex_lock(&mutex_tasks);
     task_t next_task;
 
     while (task_count == 0) {
-        pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
+        if (is_hybrid) {
+            pthread_cond_wait(&need_hybrid, &mutex_tasks);
+        } else {
+            pthread_cond_wait(&need_exec, &mutex_tasks);
+        }
+
         // no communication thread avail now
         // i might be needed to become communication thread
-        if (no_com_thr) {
+        if (no_com_thr && is_hybrid) {
             pthread_mutex_unlock(&mutex_tasks);
             return;
         }
@@ -116,7 +123,7 @@ void *executor_thread(void *args) {
     int exec_id = *((int *) args);
     add_exec_id(exec_id);
     while (1) {
-        consume_task(&exec_single_task, exec_id);
+        consume_task(&exec_single_task, exec_id, 0);
     }
     free(args);
 }
@@ -136,7 +143,7 @@ void *hybrid_thread(void *args) {
             // so that running consumers can finish and go to sleep before creating signal to wake them up
             pthread_mutex_lock(&mutex_tasks);
             no_com_thr = 1;
-            pthread_cond_broadcast(&not_empty_tasks);
+            pthread_cond_broadcast(&need_hybrid);
             pthread_mutex_unlock(&mutex_tasks);
             pthread_mutex_unlock(&mutex_connection);
 
@@ -215,7 +222,7 @@ void *hybrid_thread(void *args) {
             }
         } else {
             add_exec_id(hargs->exec_id);
-            consume_task(&exec_single_task, hargs->exec_id);
+            consume_task(&exec_single_task, hargs->exec_id, 1);
             remove_exec_id(hargs->exec_id);
         }
     }

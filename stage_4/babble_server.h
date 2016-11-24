@@ -47,5 +47,5 @@ void *executor_thread(void *args);
 void exec_single_task(task_t task);
 
 void produce_task(task_t task);
-void consume_task(void (*executor)(task_t task), int exec_id);
+void consume_task(void (*executor)(task_t task), int exec_id, int is_hybrid);
 #endif
