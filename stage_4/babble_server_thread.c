@@ -12,7 +12,6 @@
 pthread_mutex_t mutex_tasks = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t not_empty_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
-pthread_cond_t have_matched_command[BABBLE_EXECUTOR_THREADS];
 pthread_mutex_t mutex_connection = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_exec_ids = PTHREAD_MUTEX_INITIALIZER;
 
@@ -54,13 +53,6 @@ static void remove_exec_id(int exec_id) {
         }
     }
     pthread_mutex_unlock(&mutex_exec_ids);
-}
-
-void init_cond_vars() {
-    int i;
-    for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
-        pthread_cond_init(&have_matched_command[i], NULL);
-    }
 }
 
 void produce_task(task_t task) {
