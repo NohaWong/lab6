@@ -1,3 +1,4 @@
+Stage 0:
 1. babble_server.c > main() > server_connection_init
 2. babble_server.c > main() > while(1) loop - wait at server_connection_accept until there's a connection
 3. new command > parse command > notify error / process & answer
@@ -8,3 +9,74 @@
 8. check if the the target exists. If not, ack with an error message. If existed, check if the follower has already followed the target. If not yet, add the target to the end of the followed list of the the follower client_data, update the number of followed clients. Also update the number of follower for the target. Making an ack if not in streaming mode.
 9. each client data structure has a last_timeline attribute storing the lastime a TIMELINE request is executed. For each TIMELINE request, only get messages published after last_timeline, and at the end of the process, update last_timeline to endtime (the time when the TIMELINE request is processed).
 10. network_recv() for reading data from the network; network_send() for writing data to the peer via the network. The return value for both cases is the total size of the payload, or -1 if there are errors.
+
+Stage 1:
+Problems:
+- file descriptor: on our 1st attempt:
+int newsockfd;
+if ((newsockfd = server_connection_accept(sockfd))==-1){
+  return -1;
+}
+pthread_t tid;
+pthread_create(&tid, NULL, communication_thread, (void *) &newsockfd);
+
+we passed the same address (of newsockfd) as argument for new thread. So there's sometimes race condition in which new threads receive the same value of the sockfd, they listened on the same connection.
+
+- task buffer: in our task buffer design
+    pthread_mutex_lock(&mutex_tasks);
+    while (task_count == 0) {
+        // printf("[cons] task buffer empty, waiting\n");
+        pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
+    }
+
+    task_t next_task = task_buffer[task_out];
+    task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
+    task_count--;
+    // printf("[cons][%ld] got task [%d] %s\n", pthread_self(), task_out, next_task.cmd_str);
+    pthread_cond_signal(&not_full_tasks);
+    pthread_mutex_unlock(&mutex_tasks);
+
+    executor(next_task);
+
+we unlocked the mutex before executing the task (because executing task inside the critical section, it will be meaningless to have multiple threads),
+there's the possibility that content of next_task (that is being processed) is overriden by subsequence produced task.
+The solution (as in the final version) is to copy every data of the task structure into new one before leaving the critical section.
+
+Design:
+We have the main thread loop forever, waiting for new connection. Each time there is a new connection, we create a new communication thread, passing the new file descriptor (socket) to maintain that connection to the new thread.
+We have a task buffer, letting communication threads to act as producer and executor thread to act as consumer.
+Each item in the buffer has the command (string) and client key.
+
+Passed Tests:
+
+Stage 2:
+Problems:
+- inconsistent data when unregistering client
+multiple communication threads can unregister client at same time, making shared variables like nb_registrations inconsistent
+we add a lock for every unregister (and login) attempt to resolve this
+- have to allow only 1 thread to listen for new connection so that we don't have multiple threads reading from the same file descriptor at the same time
+
+Design:
+Spawn a fixed number of communication threads at the beginning.
+All communication threads listen on the initial socket of the server. When there is a connection, it does the same job as in stage 1.
+Final version has lock to only 1 communication thread waiting for new connection at any moment.
+
+Passed Tests:
+
+Stage 3:
+Problems:
+- have to lock all the command process parts that read/write from registrations list, publications
+- for multiple executor threads, there's no guarantee of ordering of messages (our design enforces exection ordering for each client, see below)
+
+Design:
+
+Passed Tests:
+
+Stage 4:
+There's must always be at least 1 pure executor thread. If there are only hybrid threads, all the threads might assume the communication thread role and there's no executor left to clear the task buffer.
+Problems:
+- there's busy waiting
+
+Design:
+
+Problems:
