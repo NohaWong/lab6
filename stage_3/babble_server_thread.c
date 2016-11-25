@@ -14,18 +14,60 @@ pthread_cond_t not_empty_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t not_full_tasks = PTHREAD_COND_INITIALIZER;
 pthread_cond_t have_matched_command[BABBLE_EXECUTOR_THREADS];
 pthread_mutex_t mutex_connection = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_client_map = PTHREAD_MUTEX_INITIALIZER;
 
 
 task_t task_buffer[BABBLE_TASK_QUEUE_SIZE];
 int task_count = 0;
 int task_in = 0;
 int task_out = 0;
-int i;
+
+int nb_clients[BABBLE_EXECUTOR_THREADS];
+int clients_exec_map[BABBLE_EXECUTOR_THREADS][BABBLE_COMMUNICATION_THREADS];
+int next_exec = 0;
 
 void init_cond_vars() {
+    int i;
     for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
+        nb_clients[i] = 0;
         pthread_cond_init(&have_matched_command[i], NULL);
     }
+}
+
+void assign_client(int key) {
+    pthread_mutex_lock(&mutex_client_map);
+    clients_exec_map[next_exec][ nb_clients[next_exec] ] = key;
+    nb_clients[next_exec]++;
+    next_exec = (next_exec + 1) % BABBLE_EXECUTOR_THREADS;
+    pthread_mutex_unlock(&mutex_client_map);
+}
+
+void remove_client(int key) {
+    int i, j;
+    pthread_mutex_lock(&mutex_client_map);
+    for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
+        for (j = 0; j < nb_clients[i]; j++) {
+            if (clients_exec_map[i][j] == key) {
+                clients_exec_map[i][j] = clients_exec_map[i][ nb_clients[i] - 1 ];
+                nb_clients[i]--;
+                break;
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&mutex_client_map);
+}
+
+int get_exec_id_for_client(int key) {
+    int i, j;
+    for (i = 0; i < BABBLE_EXECUTOR_THREADS; i++) {
+        for (j = 0; j < nb_clients[i]; j++) {
+            if (clients_exec_map[i][j] == key) {
+                return i;
+            }
+        }
+    }
+    return -1;
 }
 
 void produce_task(task_t task) {
@@ -43,20 +85,23 @@ void produce_task(task_t task) {
     task_in = (task_in + 1) % BABBLE_TASK_QUEUE_SIZE;
     task_count++;
 
-    int exec_id = task.key % BABBLE_EXECUTOR_THREADS;
+    int exec_id = get_exec_id_for_client(task.key);
+    if (exec_id >= 0) {
+        // signal the thread with id match the command key
+        pthread_cond_signal(&have_matched_command[exec_id]);
+    }
 
-    // signal the thread with id match the command key
-    pthread_cond_signal(&have_matched_command[exec_id]);
     pthread_mutex_unlock(&mutex_tasks);
 }
 
 void consume_task(void (*executor)(task_t task), int exec_id) {
     pthread_mutex_lock(&mutex_tasks);
     task_t next_task;
-    while (task_count == 0 || task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS != exec_id) {
-        int key_exec_id = task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS;
+
+    while (task_count == 0 || get_exec_id_for_client(task_buffer[task_out].key) != exec_id) {
+        int key_exec_id = get_exec_id_for_client(task_buffer[task_out].key);
         // if there's a task next but not fit for me, i wake up the consumer thread fits for the task
-        if (task_buffer[task_out].key % BABBLE_EXECUTOR_THREADS != exec_id) {
+        if (key_exec_id != exec_id) {
             pthread_cond_signal(&have_matched_command[key_exec_id]);
         }
         pthread_cond_wait(&have_matched_command[exec_id], &mutex_tasks);
@@ -138,6 +183,9 @@ void *communication_thread(void *args) {
         free(recv_buff);
         free(cmd);
 
+        // assign client to exec thread
+        assign_client(client_key);
+
         task_t task;
         /* looping on client commands */
         while((recv_size=network_recv(newsockfd, (void**) &recv_buff)) > 0){
@@ -146,6 +194,10 @@ void *communication_thread(void *args) {
             produce_task(task);
             free(recv_buff);
         }
+
+        // remove client from exec thread
+        remove_client(client_key);
+
 
         if(client_name[0] != 0){
             cmd = new_command(client_key);
