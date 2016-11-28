@@ -1,33 +1,55 @@
 \documentclass{article}
 \usepackage[utf8]{inputenc}
-\title{Memory allocator}
+\title{Multi-threading}
 \author{Noha Wong, Quoc-Trung Vuong}
 \usepackage[english]{babel}
 \usepackage{listings}
 \usepackage{array}
 \usepackage{geometry}
+\usepackage{color}
+
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+
+\lstset{
+  language=C,
+  showstringspaces=false,
+  columns=flexible,
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  otherkeywords={},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=2
+}
 \geometry{a4paper, portrait, margin=1in}
 \begin{document}
 \maketitle
 \section{Stage 0}
 \begin{enumerate}
-\item The function server\_connection\_init in the main function of babble\_server.c opens the socket where the server is going to listen for new connections.
+\item The function server\_connection\_init in the main function of babble\_server.c opens the socket (new file descriptor) where the server is going to listen for new connections.
 \item The part of the code that manages new connections on server side is in the while(1) loop the function server\_connection\_accept.
 \item The major step is get a new command, parse it, process it or return an error and send the answer.
 \item LOGIN messages are managed differently from other commands because it update the client name table.
-\item The purpose of the registration\_table is to list clients and link it with some data.
-\item The key is the hash of client name (id), used for looking up to identify which client is giving the command, getting client data
-\item The answer is set in the cmd->answer in the function answer\_command (after parse and process).For streaming command some type of command does not require answer from the server.
-\item check if the the target exists. If not, ack with an error message. If existed, check if the follower has already followed the target. If not yet, add the target to the end of the followed list of the the follower client\_data, update the number of followed clients. Also update the number of follower for the target. Making an ack if not in streaming mode.
-\item Each client data structure has a last\_timeline attribute storing the lastime a TIMELINE request is executed. For each TIMELINE request, only get messages published after last\_timeline, and at the end of the process, update last\_timeline to endtime (the time when the TIMELINE request is processed).
+\item The purpose of the registration\_table is to list clients, to allow look up by key, and to store some client-based data.
+\item The key is the hash of client name (id), used for looking up to identify which client is giving the command, getting client data.
+\item The answer is set in the cmd->answer in the function answer\_command (after parse and process). For stream-mode commands, some types of commands do not require answer from the server.
+\item Check if the the target exists. If not, ack with an error message. If existed, check if the follower has already followed the target. If not yet, add the target to the end of the followed list of the follower's client\_data, update the number of followed clients. Also update the number of followers for the target. Making an ack if not in streaming mode.
+\item Each client data structure has a last\_timeline attribute storing the last time a TIMELINE request is executed. For each TIMELINE request, only get messages published after last\_timeline, and at the end of the process, update last\_timeline to endtime (the time when the TIMELINE request is processed).
 \item network\_recv for reading data from the network; network\_send for writing data to the peer via the network. The return value for both cases is the total size of the payload, or -1 if there are errors.
 
 \end{enumerate}
 
 \section{Stage 1}
-Problem:
+\paragraph{Problem}
 \begin{itemize}
-\item \begin{lstlisting}file descriptor: on our 1st attempt:
+\item With file descriptor: on our 1st attempt:
+\begin{lstlisting}
 int newsockfd;
 if ((newsockfd = server_connection_accept(sockfd))==-1){
   return -1;
@@ -35,82 +57,65 @@ if ((newsockfd = server_connection_accept(sockfd))==-1){
 pthread_t tid;
 pthread_create(&tid, NULL, communication_thread, (void *) &newsockfd);
 \end{lstlisting}
-we passed the same address (of newsockfd) as argument for new thread. So there's sometimes race condition in which new threads receive the same value of the sockfd, they listened on the same connection.
-\item \begin{lstlisting}
-	task buffer: in our task buffer design
-    pthread_mutex_lock(&mutex_tasks);
-    while (task_count == 0) {
-        // printf("[cons] task buffer empty, waiting\n");
-        pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
-    }
+we passed the same address (of newsockfd) as argument for new thread. So there's sometimes race condition in which new threads receive the same value of the sockfd, they listened on the same connection. Our current solution is use a pointer and malloc before passing it to the new thread, so that the address itself is never the same.
+\item With	task buffer: in our first task buffer design
+\begin{lstlisting}
+pthread_mutex_lock(&mutex_tasks);
+while (task_count == 0) {
+    pthread_cond_wait(&not_empty_tasks, &mutex_tasks);
+}
 
-    task_t next_task = task_buffer[task_out];
-    task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
-    task_count--;
-    // printf("[cons][%ld] got task [%d] %s\n", pthread_self(), task_out, next_task.cmd_str);
-    pthread_cond_signal(&not_full_tasks);
-    pthread_mutex_unlock(&mutex_tasks);
-
-    executor(next_task);
+task_t next_task = task_buffer[task_out];
+task_out = (task_out + 1) % BABBLE_TASK_QUEUE_SIZE;
+task_count--;
+pthread_cond_signal(&not_full_tasks);
+pthread_mutex_unlock(&mutex_tasks);
+executor(next_task);
 \end{lstlisting}
-we unlocked the mutex before executing the task (because executing task inside the critical section, it will be meaningless to have multiple threads),
-there's the possibility that content of next\_task (that is being processed) is overriden by subsequence produced task.
-The solution (as in the final version) is to copy every data of the task structure into new one before leaving the critical section.
+we unlocked the mutex before executing the task (because with task execution inside the critical section, it would be meaningless to have multiple threads), there's the possibility that content of next\_task (that is being processed) is overridden by subsequence produced task. The solution (as in the final version) is to copy every data of the task structure into new one before leaving the critical section.
 \end{itemize}
-Design:\\
-We have the main thread loop forever, waiting for new connection. Each time there is a new connection, we create a new communication thread, passing the new file descriptor (socket) to maintain that connection to the new thread.
-We have a task buffer, letting communication threads to act as producer and executor thread to act as consumer.
-Each item in the buffer has the command (string) and client key.
-\\\\
 
-Passed Tests:\\
-all test given by the subject. We also have a small script to repeat the stress test (streaming mode) for several times without break in between \\\\
+\paragraph{Design} The executor thread is spawned first. We have the main thread loop forever, waiting for new connection. Each time there is a new connection, we create a new communication thread, passing the new file descriptor (socket) to maintain that connection to the new thread.
+\paragraph{} We have a task buffer, letting communication threads to act as producer and executor thread to act as consumer. Each item in the buffer has the command (string) and client key. We implement the producer-consumer pattern using 1 shared mutex \& 2 conditional variables for signaling the event of not full and not empty buffer.
+\paragraph{Passed tests} All test given in the subject. We also have a small script to repeat the stress test (streaming mode) for several times without pause in between
 \section{Stage 2}
-Problems:
+\paragraph{Problems}
 \begin{itemize}
-\item inconsistent data when unregistering client\\
-multiple communication threads can unregister client at same time, making shared variables like nb\_registrations inconsistent
-we add a lock for every unregister (and login) attempt to resolve this
-\item have to allow only 1 thread to listen for new connection so that we don't have multiple threads reading from the same file descriptor at the same time
+\item Inconsistent data when unregistering client (leading to failed to removal on logout): multiple communication threads can unregister client at same time, making shared variables like nb\_registrations inconsistent. We add a lock for every unregister (and login) attempt to resolve this.
+\item Issue when multiple threads listen on the same file descriptor (the initial socket). We decide to allow only 1 thread to listen for new connection (using mutex) so that we don't have multiple threads reading from the same file descriptor at the same time.
 \end{itemize}
 
-Design:\\
-Spawn a fixed number of communication threads at the beginning.
-All communication threads listen on the initial socket of the server. When there is a connection, it does the same job as in stage 1.
-Final version has lock to only 1 communication thread waiting for new connection at any moment.
-\\
-Passed Tests:\\
-all test given by the subject. We also have a small script to repeat the stress test (streaming mode) for several times without break in between \\\\
+\paragraph{Design} Spawn a fixed number of communication threads at the beginning. All communication threads listen on the initial socket of the server. When there is a connection, it does the same job as in stage 1. Final version has mutex to allow only 1 communication thread waiting for new connection at any moment.
+\paragraph{} Due to the limited number of communication threads, when there is no thread waiting on server\_connection\_thread (all being occupied already), new clients will be hang when trying to open new connection (instead of being refused) until either they give up or a communication thread becomes free.
+\paragraph{Passed Tests} All tests given in the subject. We also have a small script to repeat the stress test (streaming mode) for several times without pause in between.
 
 \section{Stage 3}
-
-Problems:
+\paragraph{Problems}
 \begin{itemize}
-\item have to lock all the command process parts that read/write from registrations list, publications
-for multiple executor threads, there's no guarantee of ordering of messages (our design enforces exection ordering for each client, see below).
+\item We have to lock all the command process parts that read/write from registrations list, publications
+for multiple executor threads. We use reader-writer pattern (copied from lab 5, so readers are prioritized) for this.
+\item There's no guarantee of ordering of messages, which is problematic for streaming test, since RDV might be processed before others from the same client. Our design enforces execution order for each client, see below.
 \end{itemize}
 
-Design:
-We just initialize all the N executor threads at the beginning and have them try to consume task from the buffer.We maintain a property that commands from each client are always process by the same consumer. So that message from the same client are always in order(we don't need to care about the rdv). 
-Each time we get a new connection we assign it to one thread that all thread get the same number of client (plus or minus one).
+\paragraph{Design} We initialize all the N executor threads at the beginning and have them try to consume task from the buffer. We maintain a property that commands from each client are always process by the same consumer, so that message from the same client are always in order (then we don't need to care about the RDV).
+\paragraph{} To maintain 'assignment' of client to executor thread, our first attempt is to simply take the mod operator on client key to determine which executor. Current version has an improvement to have a (almost) balance assignment. Each time we get a new connection, we assign it to one thread, and move to next thread in the list in a round-robin fashion (assign\_client, remove\_client, get\_exec\_id\_for\_client in babble\_server\_thread.c).
+\paragraph{} Due to this design, an executor thread might not be suitable for the next task in the buffer. To avoid busy waiting (of a executor tries to grab the next task until it is suitable), we replace the not empty condition variables with an array of conditional variables, one for each executor. When the communication thread produces a new command, it signals the condition variable of the thread that is mapped to the corresponding client.
 
 
-Passed Tests:all test given by the subject. We also have a small script to repeat the stress test (streaming mode) for several times without break in between \\\\
+\paragraph{Passed Tests} All tests given by the subject. We also have a small script to repeat the stress test (streaming mode) for several times without pause in between.
 
 \section{Stage 4}
-Question : There must always be at least 1 pure executor thread. If there are only hybrid threads, all the threads might assume the communication thread role and there's no executor left to clear the task buffer.
+\paragraph{} There must always be at least 1 pure executor thread. If there are only hybrid threads, all the threads might assume the communication thread role and there's no executor left to clear the task buffer. It's not necessary to have pure communication thread.
 
-Problem:
+\paragraph{Problem}
 \begin{itemize}
-\item there's busy waiting
+\item Our design introduces quite a lot of busy waiting because hybrid threads need to be aware of many conditions.
 \end{itemize}
 
-Design:
-We always have at least one executor.\\
-For all hybrid thread first they try to fight for a connection lock. The one that get the lock became a communication thread and listen for new connection. Other hybrid that cannot get the lock move on and become executor thread. When there is new client connection the thread that currently wait for new connection will manage it and signal all hybrid thread executor to come back and try to take that role.
-The current waiter will unlock the connection lock.\\
-We still ensure that when the executor pool is stable then all commands from the same client is compute by the same executor.
-\\\\
-Test passed:\\
-all test given by the subject. But when we do the stress test in streaming mode repeatedly and without break in between, sometimes we have a bug that there is a failed to log in\\\\
+\paragraph{Design} We always have at least one executor, spawned at the beginning.
+\paragraph{} For all hybrid threads, first they try to fight for a connection mutex. The one that get the lock becomes a communication thread and listens for new connection. Other hybrids that cannot get the lock will move on (since we use trylock) and become executor threads. When there is new client connection the thread that is currently waiting for new connection will handle it and signal all hybrid threads that are executor to come back and try to take that role (in fact, we use a flag no\_com\_thread, value set to 1 when a new communication thread is needed, that all hybrids need to check for when waking up in their consume routine). The current waiter will then unlock the connection mutex.
+\paragraph{} We still ensure that all commands from the same client is compute by the same executor when the executor pool is stable. Since the number of executors is dynamic, we maintain the list of active executors and map client-executor using the mod operator on client key (see details in add\_exec\_id and remove\_exec\_id in babble\_server\_thread.c).
+\paragraph{} As the number of executors is not fixed, we cannot introduce many condition variables, one for each executor as in Stage 3. Therefore, if an executor gets a task from a client mapped to other executor, it will unlock the critical section and go back to the start (busy waiting), and we have to use broadcast (inefficiently) to ensure that the 'right' executor is waken up to handle the next task.
+\paragraph{} For consumers of the buffer task, instead of using the condition variable for non empty condition, we have 2 condition variables need\_exec and need\_hybrid to somehow treat pure executor and hybrid differently. They are all signaled by new tasks produced event, but need\_hybrid is also triggered when new communication thread is needed.
+\paragraph{Test passed} All tests given in the subject. However, when we do the stress test in streaming mode repeatedly and without pause in between, sometimes we have a bug of failed to login, which means during previous logout, the client data are not removed correctly.
 \end{document}
